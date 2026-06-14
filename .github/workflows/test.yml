@@ -24,6 +24,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
       # ── pre-commit (Python) ──────────────────────────────────────
       - if: matrix.tool == 'pre-commit'
         uses: pre-commit/action@v3.0.1
