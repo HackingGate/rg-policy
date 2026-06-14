@@ -1,0 +1,27 @@
+redact_matches = true
+
+[[dynamic_rule]]
+id = "no-running-os-identity"
+message = """
+Do not commit identity metadata from the running OS.
+"""
+source = "running-os-identity"
+include = ["."]
+exclude = ["**/tests/**"]
+
+[[path_rule]]
+id = "no-tracked-private-data"
+message = """
+Do not commit ignored local data.
+"""
+pattern = '^(?:data/private|artifacts)(?:/|$)'
+include = ["."]
+
+[[rule]]
+id = "no-hardcoded-home-paths"
+message = """
+Do not commit hardcoded user home paths.
+"""
+pattern = '(?:/home|/Users)/[A-Za-z0-9._-]+'
+include = ["."]
+exclude = ["**/tests/**", "policy/rg-policy.toml", "README.md"]
