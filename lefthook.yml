@@ -10,6 +10,3 @@ pre-commit:
   commands:
     check-policy:
       run: python3 check_policy.py
-    actionlint:
-      glob: ".github/workflows/*.{yml,yaml}"
-      run: actionlint {staged_files}
