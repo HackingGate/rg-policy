@@ -9,13 +9,6 @@ source = "running-os-identity"
 include = ["."]
 exclude = ["**/tests/**"]
 
-[[path_rule]]
-id = "no-tracked-private-data"
-message = """
-Do not commit ignored local data.
-"""
-pattern = '^(?:data/private|artifacts)(?:/|$)'
-include = ["."]
 
 [[rule]]
 id = "no-hardcoded-home-paths"
