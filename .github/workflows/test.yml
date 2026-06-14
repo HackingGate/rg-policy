@@ -16,7 +16,7 @@ permissions:
 jobs:
   hooks:
     name: ${{ matrix.tool }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     strategy:
       fail-fast: false
       matrix:
