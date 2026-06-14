@@ -1,0 +1,25 @@
+[[rule]]
+id = "no-todo-markers"
+message = """
+Do not commit TODO markers in test fixtures.
+"""
+pattern = '\bTODO\b'
+include = ["."]
+glob = ["*.txt"]
+
+[[size_rule]]
+id = "no-oversized-files"
+message = """
+Files must not exceed 10 lines.
+"""
+max_lines = 10
+glob = ["*.txt"]
+include = ["."]
+
+[[path_rule]]
+id = "no-secret-files"
+message = """
+Do not commit files named secret.
+"""
+pattern = '(?:^|/)secret\.'
+include = ["."]
