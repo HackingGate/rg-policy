@@ -1,0 +1,52 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  hooks:
+    name: ${{ matrix.tool }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: [pre-commit, prek, lefthook]
+    steps:
+      - uses: actions/checkout@v6
+
+      # ── pre-commit (Python) ──────────────────────────────────────
+      - if: matrix.tool == 'pre-commit'
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --hook-stage manual
+
+      # ── prek (Rust) ─────────────────────────────────────────────
+      - if: matrix.tool == 'prek'
+        uses: j178/prek-action@v2
+        with:
+          extra-args: --all-files --hook-stage manual
+
+      # ── lefthook (Go) ───────────────────────────────────────────
+      - if: matrix.tool == 'lefthook'
+        uses: actions/setup-go@v5
+        with:
+          go-version: '>=1.26'
+
+      - if: matrix.tool == 'lefthook'
+        run: |
+          go install github.com/evilmartians/lefthook/v2@v2.1.9
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - if: matrix.tool == 'lefthook'
+        run: lefthook run pre-commit --all-files
