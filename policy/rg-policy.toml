@@ -1,3 +1,7 @@
+# Self-test policy for this repo. Exercises `extends` (pulls in the bundled
+# hygiene base), an id override (the local no-hardcoded-home-paths replaces the
+# base rule of the same id), and redacted output.
+extends = ["hygiene"]
 redact_matches = true
 
 [[dynamic_rule]]
@@ -9,7 +13,7 @@ source = "running-os-identity"
 include = ["."]
 exclude = ["**/tests/**"]
 
-
+# Overrides the base hygiene rule of the same id with a repo-specific scope.
 [[rule]]
 id = "no-hardcoded-home-paths"
 message = """
@@ -17,4 +21,4 @@ Do not commit hardcoded user home paths.
 """
 pattern = '(?:/home|/Users)/[A-Za-z0-9._-]+'
 include = ["."]
-exclude = ["**/tests/**", "policy/rg-policy.toml", "README.md"]
+exclude = ["**/tests/**", "policy/**", "README.md"]

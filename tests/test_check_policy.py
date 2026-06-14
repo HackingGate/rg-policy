@@ -227,6 +227,152 @@ def test_plugin_source(tmp_path: Path) -> None:
     assert "no-custom-leak" in result.stderr
 
 
+# --- multiline flag --------------------------------------------------------
+
+def test_multiline_rule_fail(tmp_path: Path) -> None:
+    repo = make_repo(
+        tmp_path,
+        textwrap.dedent('''\
+            [[rule]]
+            id = "no-conflict"
+            message = "No merge-conflict block."
+            pattern = '^<{7} [\\s\\S]*?^>{7} '
+            multiline = true
+            include = ["."]
+            glob = ["*.txt"]
+        '''),
+        {"src/c.txt": "<<<<<<< HEAD\na\n=======\nb\n>>>>>>> x\n"},
+    )
+    result = run_engine(repo)
+    assert result.returncode == 1
+    assert "no-conflict" in result.stderr
+
+
+def test_multiline_rule_no_false_positive_on_lone_marker(tmp_path: Path) -> None:
+    """A bare `=======` line (RST/Markdown underline) must not fire."""
+    repo = make_repo(
+        tmp_path,
+        textwrap.dedent('''\
+            [[rule]]
+            id = "no-conflict"
+            message = "No merge-conflict block."
+            pattern = '^<{7} [\\s\\S]*?^>{7} '
+            multiline = true
+            include = ["."]
+            glob = ["*.md"]
+        '''),
+        {"README.md": "Heading\n=======\n\nbody\n"},
+    )
+    result = run_engine(repo)
+    assert result.returncode == 0, result.stderr
+
+
+# --- require_rule (must-find) ----------------------------------------------
+
+def test_require_rule_pass(tmp_path: Path) -> None:
+    repo = make_repo(
+        tmp_path,
+        textwrap.dedent('''\
+            [[require_rule]]
+            id = "scripts-strict-mode"
+            message = "Shell scripts must set strict mode."
+            pattern = 'set -euo pipefail'
+            include = ["."]
+            glob = ["*.sh"]
+        '''),
+        {"ok.sh": "#!/usr/bin/env bash\nset -euo pipefail\necho hi\n"},
+    )
+    result = run_engine(repo)
+    assert result.returncode == 0, result.stderr
+
+
+def test_require_rule_fail(tmp_path: Path) -> None:
+    repo = make_repo(
+        tmp_path,
+        textwrap.dedent('''\
+            [[require_rule]]
+            id = "scripts-strict-mode"
+            message = "Shell scripts must set strict mode."
+            pattern = 'set -euo pipefail'
+            include = ["."]
+            glob = ["*.sh"]
+        '''),
+        {"bad.sh": "#!/usr/bin/env bash\necho hi\n"},
+    )
+    result = run_engine(repo)
+    assert result.returncode == 1
+    assert "scripts-strict-mode" in result.stderr
+    assert "bad.sh" in result.stderr
+
+
+# --- extends / base merge --------------------------------------------------
+
+def test_extends_pulls_in_base_rule(tmp_path: Path) -> None:
+    """A repo extending `hygiene` inherits no-hardcoded-home-paths."""
+    repo = make_repo(
+        tmp_path,
+        'extends = ["hygiene"]\n',
+        {"src/paths.py": 'P = "/home/alice/secret"\n'},
+    )
+    result = run_engine(repo)
+    assert result.returncode == 1
+    assert "no-hardcoded-home-paths" in result.stderr
+
+
+def test_extends_disable_rules(tmp_path: Path) -> None:
+    """disable_rules drops a base rule by id."""
+    repo = make_repo(
+        tmp_path,
+        'extends = ["hygiene"]\ndisable_rules = ["no-hardcoded-home-paths"]\n',
+        {"src/paths.py": 'P = "/home/alice/secret"\n'},
+    )
+    result = run_engine(repo)
+    assert result.returncode == 0, result.stderr
+
+
+def test_extends_repo_overrides_base_by_id(tmp_path: Path) -> None:
+    """A repo rule with the same id replaces the base rule (here: narrower)."""
+    repo = make_repo(
+        tmp_path,
+        textwrap.dedent('''\
+            extends = ["hygiene"]
+
+            [[rule]]
+            id = "no-hardcoded-home-paths"
+            message = "Local override."
+            pattern = '(?:/home|/Users)/[A-Za-z0-9._-]+'
+            include = ["."]
+            glob = ["*.py"]
+        '''),
+        # .txt would trip the base rule, but the override only scans *.py.
+        {"src/notes.txt": "/home/alice\n"},
+    )
+    result = run_engine(repo)
+    assert result.returncode == 0, result.stderr
+
+
+def test_extends_unknown_base_errors(tmp_path: Path) -> None:
+    repo = make_repo(
+        tmp_path,
+        'extends = ["does-not-exist"]\n',
+        {"src/clean.txt": "ok\n"},
+    )
+    result = run_engine(repo)
+    assert result.returncode == 2
+    assert "unknown base rule set" in result.stderr
+
+
+def test_extends_security_auth_key(tmp_path: Path) -> None:
+    repo = make_repo(
+        tmp_path,
+        'extends = ["security"]\n',
+        {"src/creds.py": 'password = "hunter2hunter2hunter2"\n'},
+    )
+    result = run_engine(repo)
+    assert result.returncode == 1
+    assert "no-committed-auth-key-values" in result.stderr
+
+
 # --- missing policy file ---------------------------------------------------
 
 def test_missing_policy(tmp_path: Path) -> None:

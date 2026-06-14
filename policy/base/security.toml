@@ -1,0 +1,52 @@
+# Base rule set: security (credential-shaped, opt-in)
+#
+# Generic secret-shape detection. This group is intentionally separate from
+# `hygiene` so repos that only want non-credential rules can omit it. Pull in
+# with:
+#
+#   extends = ["hygiene", "security"]
+#
+# Patterns match well-known credential *shapes* only — no real or example
+# secrets. Test trees are excluded by default; redefine a rule locally to widen
+# or narrow scope.
+
+[[rule]]
+id = "no-committed-secret-material"
+message = """
+Do not commit private keys or service tokens. Keep real credentials in an
+appropriate local secret store and use placeholders in tracked files.
+"""
+pattern = '-----BEGIN [A-Z ]*PRIVATE KEY-----|\bssh-rsa\s+[A-Za-z0-9+/]{20,}={0,3}\b|\b(?:A3T[A-Z0-9]|AKIA|ASIA)[A-Z0-9]{16}\b|\b(?:gh[pousr]_[A-Za-z0-9_]{36,}|github_pat_[A-Za-z0-9_]{20,})\b|\bxox[baprs]-[A-Za-z0-9-]{24,}\b|\bsk-[A-Za-z0-9]{32,}\b'
+include = ["."]
+exclude = ["**/tests/**", "**/test/**", "policy/**"]
+
+[[rule]]
+id = "no-committed-auth-key-values"
+message = """
+Do not commit literal credential, cookie, session, token, or secret values. Use
+environment-variable names or explicit redacted placeholders.
+"""
+pattern = '''(?i)\b(?:cookie|session|password|passwd|token|credential|secret)\b\s*[=:]\s*["']?[A-Za-z0-9_./+=:@-]{16,}'''
+include = ["."]
+exclude = ["**/tests/**", "**/test/**", "policy/**", "README.md"]
+
+[[rule]]
+id = "no-env-secret-values"
+message = """
+Do not commit populated environment files. Use .env.example with empty or
+placeholder values and keep real values in ignored local .env files.
+"""
+pattern = '^\s*(?:[A-Z0-9_]*)(?:USERNAME|PASSWORD|TOKEN|COOKIE|SESSION|SECRET|API_?KEY)\s*=\s*[^#\s].*$'
+include = ["."]
+glob = [".env", ".env.*", "*.env", "*.env.*"]
+exclude = [".env.example", "**/tests/**", "**/test/**"]
+
+[[path_rule]]
+id = "no-browser-profile-artifacts"
+message = """
+Do not commit browser profile or session-store files. Cookie jars, login
+stores, session stores, and profile databases can contain authenticated data.
+"""
+pattern = '(?i)(?:^|/)(?:cookies\.sqlite|key4\.db|logins\.json|places\.sqlite|sessionstore(?:-backups)?|sessionstore\.jsonlz4|Login Data|Network Persistent State|Cookies)(?:$|/)'
+include = ["."]
+exclude = ["**/tests/**", "**/test/**"]
