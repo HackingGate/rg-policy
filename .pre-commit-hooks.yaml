@@ -2,7 +2,7 @@
   name: rg-policy
   description: run repository policy checks from policy/rg-policy.toml using ripgrep
   entry: check_policy.py
-  language: python
+  language: script
   stages: [pre-commit, manual]
   pass_filenames: false
   always_run: true
