@@ -14,6 +14,18 @@ permissions:
   contents: read
 
 jobs:
+  unit-tests:
+    name: engine unit tests
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Run engine tests
+        run: python3 tests/test_check_policy.py
+
   hooks:
     name: ${{ matrix.tool }}
     runs-on: ubuntu-slim

@@ -1,0 +1,90 @@
+# Base rule set: hygiene (non-credential)
+#
+# Generic, repo-agnostic content hygiene. Pull in from a repo policy with:
+#
+#   extends = ["hygiene"]
+#
+# Opt out of any single rule with `disable_rules = ["<id>"]`, or override one by
+# redefining a rule with the same `id` in your own policy.
+#
+# Every rule defaults to `exclude = ["**/tests/**", "**/test/**"]` because test
+# fixtures legitimately carry example-bad content. Patterns are generic shapes
+# only — no project-, host-, or account-specific content.
+
+[[rule]]
+id = "no-merge-conflict-markers"
+message = """
+Do not commit Git merge-conflict markers. Resolve the conflict and remove the
+<<<<<<< / ======= / >>>>>>> lines before committing.
+"""
+# Match a full conflict block so a lone `=======` (RST/Markdown underline) does
+# not false-positive. Needs multiline to span the block.
+pattern = '^<{7} [\s\S]*?^={7}$[\s\S]*?^>{7} '
+multiline = true
+include = ["."]
+exclude = ["**/tests/**", "**/test/**"]
+
+[[rule]]
+id = "no-hardcoded-home-paths"
+message = """
+Do not commit hardcoded user home paths. Use neutral paths such as
+/srv/example/... or discover runtime paths from configuration and system state.
+"""
+pattern = '(?:/home|/Users)/[A-Za-z0-9._-]+|[A-Za-z]:\\Users\\[A-Za-z0-9._-]+'
+include = ["."]
+exclude = ["**/tests/**", "**/test/**", "policy/**", "README.md"]
+
+[[rule]]
+id = "no-dated-source-metadata"
+message = """
+Do not commit dated status metadata in source docs. Use Git history for
+chronology and keep source files stable.
+"""
+# `Da[t]e` so this rule text never matches itself.
+pattern = '^Da[t]e:[[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}'
+include = ["."]
+glob = ["*.md", "*.rst", "*.txt"]
+exclude = ["**/tests/**", "**/test/**", "CHANGELOG*"]
+
+[[rule]]
+id = "no-status-source-metadata"
+message = """
+Do not commit workflow-state metadata in source docs. Track decision state in
+your tracker, not in tracked files.
+"""
+pattern = '^Sta[t]us:[[:space:]]*[[:alnum:]_-]+'
+include = ["."]
+glob = ["*.md", "*.rst", "*.txt"]
+exclude = ["**/tests/**", "**/test/**"]
+
+[[rule]]
+id = "no-task-tracker-references"
+message = """
+Do not commit task-tracker references in source docs. Keep task tracking in
+tracker metadata, not in tracked files.
+"""
+pattern = 'github\.com/[^[:space:])]+/(?:issues|pull)/[0-9]+|(?:^|[[:space:]]|\(|\[)#[0-9]+\b'
+include = ["."]
+glob = ["*.md", "*.rst", "*.txt"]
+exclude = ["**/tests/**", "**/test/**", "CHANGELOG*"]
+
+[[rule]]
+id = "no-process-history-references"
+message = """
+Do not reference process-history records (issue/PR/thread numbers) in final
+docs. Extract the durable rule or final state instead.
+"""
+pattern = '(?i)\b(?:issue|pr)\s+#[0-9]+\b|\bas discussed in (?:an? )?(?:issue|thread|pr)\b|(?:https?://)?github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:issues|pull)/[0-9]+\b'
+include = ["."]
+glob = ["*.md", "*.rst", "*.txt"]
+exclude = ["**/tests/**", "**/test/**", "CHANGELOG*"]
+
+[[path_rule]]
+id = "no-tracked-private-data-paths"
+message = """
+Do not commit local private data, build artifacts, traces, or HAR captures.
+Keep these under ignored local paths only.
+"""
+pattern = '^(?:data/private|artifacts|traces)(?:/|$)|\.(?:har|trace)$'
+include = ["."]
+exclude = ["**/tests/**", "**/test/**"]

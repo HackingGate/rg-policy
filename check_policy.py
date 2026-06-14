@@ -1,15 +1,21 @@
 #!/usr/bin/env python3
 """Run repository policy checks with ripgrep.
 
-Unified engine for rg-policy.toml rule evaluation.  Supports four rule kinds:
+Unified engine for rg-policy.toml rule evaluation.  Supports five rule kinds:
 
   [[rule]]          — pattern-match (rg --regexp) that must find zero hits
   [[dynamic_rule]]  — values produced at runtime, each searched via rg
   [[size_rule]]     — source-file line-count limits with optional baseline ratchet
   [[path_rule]]     — regex matched against tracked file paths (no rg)
+  [[require_rule]]  — pattern that *must* match in every selected file (must-find)
+
+Any ``[[rule]]`` may set ``multiline = true`` to match across line boundaries
+(rg ``--multiline --multiline-dotall``).
 
 Repos keep their own ``policy/rg-policy.toml``; this script is consumed as a
-shared pre-commit / prek hook from the org's rg-policy repo.
+shared pre-commit / prek hook from the org's rg-policy repo.  A repo policy may
+pull in bundled base rule sets shipped in this repo's ``policy/base/`` via a
+top-level ``extends`` key (see below).
 
 Dynamic-rule *sources* are extensible: built-in sources cover OS identity and
 network metadata.  Repos that need custom sources (e.g. hostapd-silent-config,
@@ -19,6 +25,10 @@ that return ``dict[str, str]``.
 
 Top-level policy-file keys:
 
+  extends = ["hygiene"]   — merge bundled base rule sets from policy/base/*.toml
+                             (resolved relative to this script, not the consuming
+                             repo).  Repo rules override base rules sharing an id.
+  disable_rules = ["id"]  — drop specific base rules by id.
   redact_matches = true   — use JSON rg mode and print [REDACTED_MATCH]
                              instead of raw match content (for repos with
                              sensitive data such as captured credentials)
@@ -145,9 +155,76 @@ def drop_cfg_test_matches(stdout: str) -> str:
 # Policy loading
 # ---------------------------------------------------------------------------
 
+# Rule-kind keys, in evaluation order.  Shared by the merge step and main().
+RULE_KIND_KEYS = ("rule", "dynamic_rule", "size_rule", "path_rule", "require_rule")
+
+# Bundled base rule sets ship inside *this* (the hook) repo, resolved relative
+# to the script — not ROOT, which is the consuming repo.
+BASE_DIR = Path(__file__).resolve().parent / "policy" / "base"
+
+
+def _load_toml(path: Path) -> dict[str, Any]:
+    with path.open("rb") as toml_file:
+        return tomllib.load(toml_file)
+
+
+def _merge_rule_kind(
+    base: list[dict[str, Any]],
+    repo: list[dict[str, Any]],
+    disabled: set[str],
+) -> list[dict[str, Any]]:
+    """Merge one rule kind: base rules first, then repo rules.
+
+    A repo rule overrides a base rule sharing the same ``id``; ids listed in
+    ``disabled`` drop the matching base rule.  Entries without an ``id`` are
+    kept verbatim.
+    """
+    repo_ids = {rule["id"] for rule in repo if "id" in rule}
+    merged: list[dict[str, Any]] = []
+    for rule in base:
+        rule_id = rule.get("id")
+        if rule_id is not None and (rule_id in disabled or rule_id in repo_ids):
+            continue
+        merged.append(rule)
+    merged.extend(repo)
+    return merged
+
+
 def load_policy() -> dict[str, Any]:
-    with POLICY_PATH.open("rb") as policy_file:
-        return tomllib.load(policy_file)
+    """Load the repo policy, merging any bundled base sets named in ``extends``.
+
+    Top-level ``extends = ["hygiene", ...]`` pulls in ``policy/base/<name>.toml``
+    from the hook repo; ``disable_rules = ["id", ...]`` opts out of base rules by
+    id.  Repo-defined rules override base rules sharing the same id.
+    """
+    policy = _load_toml(POLICY_PATH)
+
+    extends = policy.get("extends", [])
+    if not extends:
+        return policy
+    if not isinstance(extends, list):
+        raise ValueError(f"{POLICY_PATH}: 'extends' must be a list of base names")
+
+    disabled = set(policy.get("disable_rules", []))
+
+    bases: dict[str, list[dict[str, Any]]] = {key: [] for key in RULE_KIND_KEYS}
+    for name in extends:
+        base_path = BASE_DIR / f"{name}.toml"
+        if not base_path.is_file():
+            raise ValueError(
+                f"{POLICY_PATH}: unknown base rule set {name!r} (expected {base_path})"
+            )
+        base_policy = _load_toml(base_path)
+        for key in RULE_KIND_KEYS:
+            bases[key].extend(base_policy.get(key, []))
+
+    for key in RULE_KIND_KEYS:
+        repo_rules = policy.get(key, [])
+        if not isinstance(repo_rules, list):
+            raise ValueError(f"{POLICY_PATH}: expected [[{key}]] entries")
+        policy[key] = _merge_rule_kind(bases[key], repo_rules, disabled)
+
+    return policy
 
 
 def rule_list(policy: dict[str, Any], key: str) -> list[dict[str, Any]]:
@@ -206,8 +283,22 @@ def include_args(rule: dict[str, Any]) -> list[str]:
     return rule.get("include", ["."])
 
 
+def multiline_args(rule: dict[str, Any]) -> list[str]:
+    """Enable cross-line matching when a rule sets ``multiline = true``."""
+    if rule.get("multiline"):
+        return ["--multiline", "--multiline-dotall"]
+    return []
+
+
 def rg_command(rule: dict[str, Any]) -> list[str]:
-    return [*RG_SEARCH_BASE, *glob_args(rule), "--regexp", rule["pattern"], *include_args(rule)]
+    return [
+        *RG_SEARCH_BASE,
+        *multiline_args(rule),
+        *glob_args(rule),
+        "--regexp",
+        rule["pattern"],
+        *include_args(rule),
+    ]
 
 
 def literal_rg_command(rule: dict[str, Any], value: str) -> list[str]:
@@ -249,12 +340,15 @@ def run_rg_json(
     files: list[str],
     *,
     fixed_strings: bool = False,
+    multiline: bool = False,
 ) -> list[Finding]:
     """Run rg in JSON mode against an explicit file list, with chunking."""
     findings: list[Finding] = []
     for start in range(0, len(files), RG_FILE_CHUNK_SIZE):
         chunk = files[start : start + RG_FILE_CHUNK_SIZE]
         cmd = ["rg", "--json", "--color", "never"]
+        if multiline:
+            cmd.extend(["--multiline", "--multiline-dotall"])
         if fixed_strings:
             cmd.append("--fixed-strings")
         cmd.extend(["--regexp", pattern, "--"])
@@ -354,7 +448,15 @@ def _filesystem_candidate_files() -> list[str]:
 
 
 def _matches_glob(path: str, pattern: str) -> bool:
-    return fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(Path(path).name, pattern)
+    if fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(Path(path).name, pattern):
+        return True
+    # gitignore-style `**/` may match zero leading directories, which fnmatch
+    # does not model.  Retry with the prefix stripped so `**/tests/**` also
+    # matches a top-level `tests/...` path (keeps redacted-mode globbing aligned
+    # with rg's line-mode `--glob` semantics).
+    if pattern.startswith("**/"):
+        return _matches_glob(path, pattern[3:])
+    return False
 
 
 def _matches_path_spec(path: str, spec: str) -> bool:
@@ -611,6 +713,42 @@ def size_rule_failures(rule: dict[str, Any]) -> list[Failure]:
     return []
 
 
+def require_rule_failures(rule: dict[str, Any]) -> list[Failure]:
+    """Evaluate a ``[[require_rule]]``: each selected file *must* match.
+
+    Inverse of the zero-hit model — a violation is a selected file with zero
+    matches (e.g. a shell script missing ``set -euo pipefail``).  Reports file
+    paths only, so it is safe in redacted mode.
+    """
+    files = selected_files(rule, candidate_files())
+    if not files:
+        return []
+    base_cmd = ["rg", "--count-matches", "--color", "never"]
+    base_cmd.extend(multiline_args(rule))
+    if rule.get("fixed_strings"):
+        base_cmd.append("--fixed-strings")
+    base_cmd.extend(["--regexp", rule["pattern"], "--"])
+
+    missing: list[str] = []
+    for path in files:
+        completed = subprocess.run(
+            [*base_cmd, path],
+            check=False,
+            cwd=ROOT,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        if completed.returncode > 1:
+            raise PolicyCheckError(rule["id"], completed.returncode, completed.stderr)
+        if completed.returncode == 1 or not completed.stdout.strip():
+            missing.append(path)
+    if missing:
+        body = "\n".join(f"{path}: required pattern not found" for path in sorted(missing))
+        return [(rule["id"], rule["message"], body)]
+    return []
+
+
 # ---------------------------------------------------------------------------
 # Rule handlers — JSON / file-list mode (path_rule, redacted)
 # ---------------------------------------------------------------------------
@@ -665,7 +803,11 @@ def pattern_rule_failures_json(
     rule_files = selected_files(rule, files)
     if not rule_files:
         return []
-    findings = run_rg_json(rule["pattern"], rule_files)
+    findings = run_rg_json(
+        rule["pattern"],
+        rule_files,
+        multiline=bool(rule.get("multiline")),
+    )
     if findings:
         return [(rule["id"], rule["message"], _format_redacted_body(findings))]
     return []
@@ -680,6 +822,7 @@ RULE_KINDS: tuple[tuple[str, Callable[[dict[str, Any]], list[Failure]]], ...] = 
     ("rule", pattern_rule_failures),
     ("dynamic_rule", dynamic_rule_failures),
     ("size_rule", size_rule_failures),
+    ("require_rule", require_rule_failures),
 )
 
 
@@ -699,7 +842,12 @@ def main() -> int:
         )
         return 2
 
-    policy = load_policy()
+    try:
+        policy = load_policy()
+    except (ValueError, tomllib.TOMLDecodeError, OSError) as error:
+        print(f"policy check failed: {error}", file=sys.stderr)
+        return 2
+
     failures = 0
 
     # Determine output mode.  Repos that need redacted output set
@@ -727,9 +875,15 @@ def main() -> int:
                     failures += 1
                     report_failure(label, message, body)
 
-            # size_rule uses line mode regardless (no match content to redact).
+            # size_rule and require_rule report paths only (no match content to
+            # redact), so they run identically in both modes.
             for rule in rule_list(policy, "size_rule"):
                 for label, message, body in size_rule_failures(rule):
+                    failures += 1
+                    report_failure(label, message, body)
+
+            for rule in rule_list(policy, "require_rule"):
+                for label, message, body in require_rule_failures(rule):
                     failures += 1
                     report_failure(label, message, body)
 
