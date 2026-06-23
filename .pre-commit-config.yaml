@@ -1,0 +1,32 @@
+# Shared hook configuration — works with both pre-commit and prek.
+#
+# pre-commit:  pip install pre-commit && pre-commit install
+# prek:        cargo install prek && prek install
+#
+# Both tools read this file natively.  lefthook has its own lefthook.yml.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+
+  - repo: https://github.com/HackingGate/git-guards
+    rev: main
+    hooks:
+      - id: prevent-ai-author
+      - id: prevent-unusual-unicode
+      - id: prevent-public-push
+      - id: no-local-merge
+      - id: no-merge-commit
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint

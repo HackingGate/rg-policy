@@ -1,0 +1,9 @@
+- id: check-policy
+  name: rg-policy
+  description: run repository policy checks from policy/rg-policy.toml using ripgrep
+  entry: check_policy.py
+  language: script
+  stages: [pre-commit, manual]
+  pass_filenames: false
+  always_run: true
+  additional_dependencies: []
