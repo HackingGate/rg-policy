@@ -18,7 +18,7 @@ repos:
       - id: check-added-large-files
 
   - repo: https://github.com/HackingGate/git-guards
-    rev: main
+    rev: v1.0.0
     hooks:
       - id: prevent-ai-author
       - id: prevent-unusual-unicode
