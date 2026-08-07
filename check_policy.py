@@ -997,6 +997,30 @@ def _stale_baseline_failure(
     return [(f"{rule['id']} (stale baseline)", STALE_BASELINE_MESSAGE, body)]
 
 
+#: The must-find counterpart. A ``[[require_rule]]`` baseline lists paths allowed
+#: to be MISSING the pattern, so an entry goes stale the other way round: the
+#: path acquired what the rule requires, the debt is paid, and the entry now only
+#: hides the file losing it again.
+STALE_REQUIRE_BASELINE_MESSAGE = (
+    "This rule's baseline lists paths that no longer need the exemption -- they "
+    "satisfy the rule now, or they are gone. Delete them: an entry that no "
+    "longer describes the tree is the requirement switched off for that path if "
+    "the pattern ever disappears again."
+)
+
+
+def _stale_require_baseline_failure(
+    rule: dict[str, Any], baseline: set[str], still_missing: set[str]
+) -> list[Failure]:
+    stale = sorted(baseline - still_missing)
+    if not stale:
+        return []
+    body = "\n".join(
+        f"{path}: satisfied or gone (drop from baseline)" for path in stale
+    )
+    return [(f"{rule['id']} (stale baseline)", STALE_REQUIRE_BASELINE_MESSAGE, body)]
+
+
 def _line_count(path: Path) -> int:
     """Newline count, matching ``wc -l``."""
     return path.read_bytes().count(b"\n")
@@ -1278,6 +1302,13 @@ def require_rule_failures(rule: dict[str, Any]) -> list[Failure]:
     Inverse of the zero-hit model — a violation is a selected file with zero
     matches (e.g. a shell script missing ``set -euo pipefail``).  Reports file
     paths only, so it is safe in redacted mode.
+
+    ``baseline`` works here for the same reason it works for ``[[rule]]``, and
+    it was needed more: a requirement lands only when every selected file
+    already satisfies it, which is exactly when nobody needs the rule.  The
+    entries list paths permitted to be missing the pattern, so an unlisted path
+    can never start missing it.  Stale detection is inverted to match — an entry
+    that now satisfies the rule is reported so it gets deleted.
     """
     files = selected_files(rule, candidate_files())
     if not files:
@@ -1304,10 +1335,18 @@ def require_rule_failures(rule: dict[str, Any]) -> list[Failure]:
             raise PolicyCheckError(rule["id"], completed.returncode, completed.stderr)
         if completed.returncode == 1 or not completed.stdout.strip():
             missing.append(path)
+
+    failures: list[Failure] = []
+    baseline = _load_path_baseline(rule.get("baseline"))
+    if baseline:
+        still_missing = {_normalize_rel(path) for path in missing}
+        failures.extend(_stale_require_baseline_failure(rule, baseline, still_missing))
+        missing = [path for path in missing if _normalize_rel(path) not in baseline]
+
     if missing:
         body = "\n".join(f"{path}: required pattern not found" for path in sorted(missing))
-        return [(rule["id"], rule["message"], body)]
-    return []
+        failures.append((rule["id"], rule["message"], body))
+    return failures
 
 
 # ---------------------------------------------------------------------------
