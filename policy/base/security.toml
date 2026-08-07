@@ -1,0 +1,97 @@
+# Base rule set: security (credential-shaped, opt-in)
+#
+# Generic secret-shape detection. This group is intentionally separate from
+# `hygiene` so repos that only want non-credential rules can omit it. Pull in
+# with:
+#
+#   extends = ["hygiene", "security"]
+#
+# Patterns match well-known credential *shapes* only — no real or example
+# secrets. Test trees are excluded by default; redefine a rule locally to widen
+# or narrow scope.
+
+#
+# The test-path exclusions are a LAYOUT assumption, and it is Python's and
+# JavaScript's. Go puts a test beside what it tests as `<name>_test.go`, and Rust
+# puts unit tests inline; neither ever produces a `tests/` segment for them. So a
+# Go repository got the stated rationale -- test fixtures legitimately carry
+# example-bad content -- applied to none of its tests, and had to choose between a
+# local override and a permanently red gate. One consumer chose red: its
+# credential-redaction test, whose whole subject is a credential that must not
+# leak, was refused by the rule against committed credentials.
+#
+# `**/*_test.go` extends the same allowance to the same kind of file. The cost is
+# real and worth stating: a genuine credential pasted into a Go test now passes.
+# That cost was already accepted for every file under `tests/`, and a gate nobody
+# can keep green is a gate that gets ignored wholesale rather than per-rule.
+
+[[rule]]
+id = "no-committed-secret-material"
+message = """
+Do not commit private keys or service tokens. Keep real credentials in an
+appropriate local secret store and use placeholders in tracked files.
+"""
+pattern = '-----BEGIN [A-Z ]*PRIVATE KEY-----|\bssh-rsa\s+[A-Za-z0-9+/]{20,}={0,3}\b|\b(?:A3T[A-Z0-9]|AKIA|ASIA)[A-Z0-9]{16}\b|\b(?:gh[pousr]_[A-Za-z0-9_]{36,}|github_pat_[A-Za-z0-9_]{20,})\b|\bxox[baprs]-[A-Za-z0-9-]{24,}\b|\bsk-[A-Za-z0-9]{32,}\b'
+include = ["."]
+exclude = ["**/tests/**", "**/test/**", "**/*_test.go", "policy/**"]
+
+[[rule]]
+id = "no-committed-auth-key-values"
+message = """
+Do not commit literal credential, cookie, session, token, or secret values. Use
+environment-variable names or explicit redacted placeholders.
+"""
+pattern = '''(?i)\b(?:cookie|session|password|passwd|token|credential|secret)\b\s*[=:]\s*["']?[A-Za-z0-9_./+=:@-]{16,}'''
+include = ["."]
+exclude = ["**/tests/**", "**/test/**", "**/*_test.go", "policy/**", "README.md"]
+
+[[rule]]
+id = "no-env-secret-values"
+message = """
+Do not commit populated environment files. Use .env.example with empty or
+placeholder values and keep real values in ignored local .env files.
+"""
+# APP_ID and SUBSCRIPTION_KEY were added after a fleet of 39 consuming repos was
+# read side by side. Nine of them had locally redefined this rule for the single
+# purpose of adding APP_ID and two for SUBSCRIPTION_KEY, which is what a missing
+# alternative looks like from the outside: not an argument about scope, just the
+# same edit made independently nine times.
+#
+# The PREFIX in those local copies -- JQUANTS_, FRED_, SBISEC_ -- was already
+# redundant here, because `[A-Z0-9_]*` matches any of them. So the drift was
+# never about which vendor; it was about which key names count as credential
+# shaped, and on that the local copies were right and this file was short.
+#
+# They are credentials in the sense that matters: e-Stat, BOJ and FRED issue an
+# APP_ID as the whole of the authentication, and Azure-fronted feeds issue a
+# SUBSCRIPTION_KEY the same way. A key that is the only thing between a caller
+# and an account is a secret whatever its field is called.
+pattern = '^\s*(?:[A-Z0-9_]*)(?:USERNAME|PASSWORD|TOKEN|COOKIE|SESSION|SECRET|API_?KEY|APP_ID|SUBSCRIPTION_KEY)\s*=\s*[^#\s].*$'
+include = ["."]
+glob = [".env", ".env.*", "*.env", "*.env.*"]
+# SOPS-encrypted env files are excluded, and the reason is the opposite of an
+# exemption: committing the CIPHERTEXT is the pattern, not a violation of it.
+# A vault file holds lines of the exact shape this rule matches --
+# `FRED_API_KEY=ENC[AES256_GCM,data:...]` -- and every one of them is a value
+# nobody can read without a key held elsewhere.
+#
+# Flagging them is worse than useless. A secret detector that fires on the file
+# whose whole purpose is to make secrets safe to commit teaches its reader that
+# its findings are noise, and the next real finding is skimmed past with the rest.
+# Nine consumers had already excluded their vault by NAME, which is the same
+# judgement made privately nine times.
+#
+# Matched by extension rather than by content, deliberately: `*.enc.env` and
+# `.env.enc` are naming conventions somebody chose, and a file that holds
+# ciphertext under a different name should still be looked at.
+exclude = [".env.example", "*.enc.env", ".env.enc", "*.env.enc", "**/tests/**", "**/test/**", "**/*_test.go"]
+
+[[path_rule]]
+id = "no-browser-profile-artifacts"
+message = """
+Do not commit browser profile or session-store files. Cookie jars, login
+stores, session stores, and profile databases can contain authenticated data.
+"""
+pattern = '(?i)(?:^|/)(?:cookies\.sqlite|key4\.db|logins\.json|places\.sqlite|sessionstore(?:-backups)?|sessionstore\.jsonlz4|Login Data|Network Persistent State|Cookies)(?:$|/)'
+include = ["."]
+exclude = ["**/tests/**", "**/test/**", "**/*_test.go"]

@@ -1,0 +1,48 @@
+# Self-test policy for this repo. Exercises `extends` (pulls in the bundled
+# hygiene base), an id override (the local no-hardcoded-home-paths replaces the
+# base rule of the same id), and redacted output.
+extends = ["hygiene"]
+redact_matches = true
+languages = ["en"]
+
+[[language_rule]]
+id = "cyrillic-policy-examples"
+languages = ["ru"]
+glob = ["README.md", "tests/**"]
+
+[[language_rule]]
+id = "japanese-policy-fixtures"
+languages = ["ja"]
+include = ["tests"]
+
+[[dynamic_rule]]
+id = "no-running-os-identity"
+message = """
+Do not commit identity metadata from the running OS.
+"""
+source = "running-os-identity"
+include = ["."]
+exclude = ["**/tests/**"]
+
+# Overrides the base hygiene rule of the same id with a repo-specific scope.
+[[rule]]
+id = "no-hardcoded-home-paths"
+message = """
+Do not commit hardcoded user home paths.
+"""
+pattern = '(?:/home|/Users)/[A-Za-z0-9._-]+'
+include = ["."]
+exclude = ["**/tests/**", "policy/**", "README.md"]
+
+# Dogfoods the link_rule kind on this repo's own documentation. A rule kind that
+# ships with nothing using it is indistinguishable from one that does not work.
+[[link_rule]]
+id = "no-broken-doc-links"
+message = """
+A documentation link points at a path that does not exist, or escapes the
+repository. Fix the target, or drop the link -- a reference nothing can follow is
+worse than no reference, because it reads as if someone checked.
+"""
+include = ["."]
+glob = ["*.md"]
+require_any_link = true

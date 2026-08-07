@@ -1,0 +1,94 @@
+# Base rule set: supply-chain (version pins a dependency bot cannot see)
+#
+# Pull in with:
+#
+#   extends = ["hygiene", "security", "supply-chain"]
+#
+# WHAT THIS GROUP IS ABOUT, and it is not "pinning is bad".
+#
+# A pinned dependency is good exactly when something is watching the pin. A
+# manifest a bot reads -- go.mod, package.json, pyproject.toml, a lockfile -- is
+# watched: the version is a fact in a file with an owner, and a dependency bot
+# opens a pull request when it moves. These rules are about the OTHER kind of
+# pin: a version typed into a shell line, a Dockerfile, a CI step or a README.
+#
+# That pin is not watched by anything. No manifest holds it, no bot parses it,
+# and it does not fall out of date loudly -- it falls out of date silently, and
+# the first sign is usually a fetch of a URL that has stopped existing, or a
+# tool built against a runtime that moved three releases ago. It is also the
+# shape a supply-chain fixture takes when it goes stale: the pin says which
+# artifact was reviewed, and nothing rechecks that the artifact still is what
+# was reviewed.
+#
+# So the rule is: if you pin, pin somewhere a machine is reading. Otherwise take
+# the floating version and let the toolchain resolve it.
+#
+# THIS GROUP IS SEPARATE FROM `hygiene` ON PURPOSE. A repository that vendors
+# deliberately, or that must reproduce an exact toolchain for a compliance
+# reason, has a real argument for these pins, and should be able to take the
+# hygiene rules without arguing about this one. Opting in is a decision; being
+# unable to opt out is a rule nobody can live with, which is how a gate ends up
+# disabled wholesale rather than per-rule.
+#
+# WHAT THE SHARED exclude LIST IS FOR. Every rule below carries the same one, and
+# it is not a list of places the rule is inconvenient -- it is the list of places
+# where a match is not this repository's build. Tests hold deliberate fixtures.
+# `policy/**` holds the patterns themselves, which match themselves. README.md
+# documents the form being banned and would fail on its own example.
+#
+# `third_party/**` and `vendor/**` are the same category and were missing. A
+# vendored tree is somebody else's source, checked in so the build does not fetch
+# it, and a pinned URL inside it is a fact about how that artifact was published
+# rather than an instruction this build follows. Without them a consumer's only
+# recourse is `disable_rules`, which switches the rule off for its FIRST-PARTY
+# code as well, turning a scoping question into a coverage loss. Measured: a
+# consumer vendoring a minified swagger-ui bundle failed no-pinned-versioned-fetch
+# on line 2 of that bundle and passed everywhere else.
+#
+# Widening an exclude can only remove failures, never create them, which is why
+# it belongs in a base set where adding a RULE would not.
+#
+# PROVENANCE. These three rules were promoted here after being found hand-copied
+# into 36 of 39 consuming repositories, byte-identical in every one. Thirty-six
+# identical copies of a rule is not thirty-six decisions; it is one decision and
+# thirty-five transcriptions, and the transcriptions are where drift lives.
+
+[[rule]]
+id = "no-pinned-tool-install"
+message = """
+Do not pin a tool version in an install command. A version typed into a shell
+line is a pin nothing watches: no manifest holds it and no dependency bot can
+open a pull request against it, so it goes stale silently.
+
+Install the floating version and let the toolchain resolve it, or move the pin
+into a manifest something reads (go.mod, pyproject.toml, package.json, a
+lockfile) where a bot can see it move.
+"""
+pattern = '(?i)(go install \S+@v?[0-9]+\.[0-9]|pip[x]? install [^\n]*==[0-9]|npm (i|install)( -g)? \S+@[0-9]+\.[0-9]|npx \S+@[0-9]+\.[0-9]|cargo install [^\n]*(--version[ =]|@)[0-9]|--with [A-Za-z0-9_.-]+==[0-9])'
+include = ["."]
+exclude = ["**/tests/**", "**/test/**", "**/*_test.go", "policy/**", "README.md", "third_party/**", "vendor/**"]
+
+[[rule]]
+id = "no-pinned-release-download"
+message = """
+Do not fetch a pinned release artifact by URL. `releases/download/vX.Y.Z` names
+a specific build in a path no manifest holds, so nothing tracks it and nothing
+re-verifies that the artifact behind it is still the one that was reviewed.
+
+Use the package manager, or a manifest entry a dependency bot can read.
+"""
+pattern = 'releases/download/v?[0-9]'
+include = ["."]
+exclude = ["**/tests/**", "**/test/**", "**/*_test.go", "policy/**", "README.md", "third_party/**", "vendor/**"]
+
+[[rule]]
+id = "no-pinned-versioned-fetch"
+message = """
+Do not curl or wget a versioned URL. The version in the path is a pin nothing
+watches, and the failure mode is not a stale dependency -- it is a 404 on a URL
+that stopped existing, in the middle of a build, long after whoever typed it
+moved on.
+"""
+pattern = '(?i)(curl|wget)\b.*https?://\S+/v?[0-9]+\.[0-9]+\.[0-9]'
+include = ["."]
+exclude = ["**/tests/**", "**/test/**", "**/*_test.go", "policy/**", "README.md", "third_party/**", "vendor/**"]

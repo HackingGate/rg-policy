@@ -1,0 +1,117 @@
+# Base rule set: hygiene (non-credential)
+#
+# Generic, repo-agnostic content hygiene. Pull in from a repo policy with:
+#
+#   extends = ["hygiene"]
+#
+# Opt out of any single rule with `disable_rules = ["<id>"]`, or override one by
+# redefining a rule with the same `id` in your own policy.
+#
+# Every rule defaults to `exclude = ["**/tests/**", "**/test/**"]` because test
+# fixtures legitimately carry example-bad content. Patterns are generic shapes
+# only — no project-, host-, or account-specific content.
+
+#
+# The test-path exclusions are a LAYOUT assumption, and it is Python's and
+# JavaScript's. Go puts a test beside what it tests as `<name>_test.go`, and Rust
+# puts unit tests inline; neither ever produces a `tests/` segment for them. So a
+# Go repository got the stated rationale -- test fixtures legitimately carry
+# example-bad content -- applied to none of its tests, and had to choose between a
+# local override and a permanently red gate. One consumer chose red: its
+# credential-redaction test, whose whole subject is a credential that must not
+# leak, was refused by the rule against committed credentials.
+#
+# `**/*_test.go` extends the same allowance to the same kind of file. The cost is
+# real and worth stating: a genuine credential pasted into a Go test now passes.
+# That cost was already accepted for every file under `tests/`, and a gate nobody
+# can keep green is a gate that gets ignored wholesale rather than per-rule.
+
+[[rule]]
+id = "no-merge-conflict-markers"
+message = """
+Do not commit Git merge-conflict markers. Resolve the conflict and remove the
+<<<<<<< / ======= / >>>>>>> lines before committing.
+"""
+# Match a full conflict block so a lone `=======` (RST/Markdown underline) does
+# not false-positive. Needs multiline to span the block.
+pattern = '^<{7} [\s\S]*?^={7}$[\s\S]*?^>{7} '
+multiline = true
+include = ["."]
+exclude = ["**/tests/**", "**/test/**", "**/*_test.go"]
+
+[[rule]]
+id = "no-hardcoded-home-paths"
+message = """
+Do not commit hardcoded user home paths. Use neutral paths such as
+/srv/example/... or discover runtime paths from configuration and system state.
+"""
+pattern = '(?:/home|/Users)/[A-Za-z0-9._-]+|[A-Za-z]:\\Users\\[A-Za-z0-9._-]+'
+include = ["."]
+exclude = ["**/tests/**", "**/test/**", "**/*_test.go", "policy/**", "README.md"]
+
+[[rule]]
+id = "no-dated-source-metadata"
+message = """
+Do not commit dated status metadata in source docs. Use Git history for
+chronology and keep source files stable.
+"""
+# `Da[t]e` so this rule text never matches itself.
+pattern = '^Da[t]e:[[:space:]]*[0-9]{4}-[0-9]{2}-[0-9]{2}'
+include = ["."]
+glob = ["*.md", "*.rst", "*.txt"]
+exclude = ["**/tests/**", "**/test/**", "**/*_test.go", "CHANGELOG*"]
+
+[[rule]]
+id = "no-status-source-metadata"
+message = """
+Do not commit workflow-state metadata in source docs. Track decision state in
+your tracker, not in tracked files. An architecture decision record is the
+exception: its status is the record's own standing, and docs/adr/ is excluded.
+"""
+pattern = '^Sta[t]us:[[:space:]]*[[:alnum:]_-]+'
+include = ["."]
+glob = ["*.md", "*.rst", "*.txt"]
+# docs/adr/ is excluded because an ADR is the one document whose Status is NOT
+# workflow state copied out of a tracker. It is the record's own standing --
+# whether the decision binds, was amended, or was superseded -- it is part of the
+# ADR form itself, and it has no other home: an ADR outlives the tracker item that
+# produced it, and a superseded ADR has to say so where it is read, not in an
+# issue nobody opens. Without this, a reader cannot tell an accepted decision from
+# an abandoned sketch, which is precisely the state this exclusion was found in.
+#
+# Two consumers had already worked around it with an identical local override,
+# and a third was about to. A base rule that every consumer with ADRs must
+# override is a base rule with the wrong scope.
+exclude = ["**/tests/**", "**/test/**", "**/*_test.go", "**/docs/adr/**"]
+
+[[rule]]
+id = "no-task-tracker-references"
+message = """
+Do not commit task-tracker references in source docs. Keep task tracking in
+tracker metadata, not in tracked files.
+"""
+pattern = 'github\.com/[^[:space:])]+/(?:issues|pull)/[0-9]+|(?:^|[[:space:]]|\(|\[)#[0-9]+\b'
+include = ["."]
+glob = ["*.md", "*.rst", "*.txt"]
+exclude = ["**/tests/**", "**/test/**", "**/*_test.go", "CHANGELOG*"]
+
+[[rule]]
+id = "no-process-history-references"
+message = """
+Do not reference process-history records (issue/PR/thread numbers) in final
+docs. Extract the durable rule or final state instead.
+"""
+pattern = '(?i)\b(?:issue|pr)\s+#[0-9]+\b|\bas discussed in (?:an? )?(?:issue|thread|pr)\b|(?:https?://)?github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/(?:issues|pull)/[0-9]+\b'
+include = ["."]
+glob = ["*.md", "*.rst", "*.txt"]
+exclude = ["**/tests/**", "**/test/**", "**/*_test.go", "CHANGELOG*"]
+
+[[path_rule]]
+id = "no-tracked-private-data-paths"
+message = """
+Do not commit local private data, build artifacts, traces, or HAR captures.
+Keep these under ignored local paths only.
+"""
+pattern = '^(?:data/private|artifacts|traces)(?:/|$)|\.(?:har|trace)$'
+include = ["."]
+exclude = ["**/tests/**", "**/test/**", "**/*_test.go"]

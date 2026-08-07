@@ -1,0 +1,15 @@
+# lefthook configuration -- fast, cross-language Git hooks manager.
+#
+# Install:  go install github.com/evilmartians/lefthook@latest
+#           or via npm/cargo/homebrew: https://github.com/evilmartians/lefthook
+# Setup:    lefthook install
+# Run all:  lefthook run pre-commit --all-files
+
+pre-commit:
+  parallel: true
+  commands:
+    check-policy:
+      run: python3 check_policy.py
+    actionlint:
+      glob: ".github/workflows/*.{yml,yaml}"
+      run: actionlint {staged_files}

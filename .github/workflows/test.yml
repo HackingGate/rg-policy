@@ -1,0 +1,87 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: engine unit tests
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+
+      - name: Run engine tests
+        run: python3 tests/test_check_policy.py
+
+  hooks:
+    name: ${{ matrix.tool }}
+    runs-on: ubuntu-slim
+    strategy:
+      fail-fast: false
+      matrix:
+        tool: [pre-commit, prek, lefthook]
+    # Both variables exist so that no-private-repo-names-in-files can actually
+    # fire here. Without them it runs, prints nothing and exits 0, which is the
+    # worst of the three outcomes: a green leg for a rule that never evaluated
+    # anything.
+    #
+    # GIT_GUARDS_REPO_VISIBILITY, because the guard's first question is whether
+    # THIS repository is public, and it answers it by asking the forge. On a
+    # runner `gh` is unauthenticated, so the answer comes back unknown and the
+    # guard exits 0 before it consults the owner list at all. This repository is
+    # public, so stating it is recording a fact rather than overriding a check.
+    #
+    # GIT_GUARDS_PRIVATE_OWNERS from a secret, because the owner list is the one
+    # part of this rule that cannot live in a public repository -- writing it
+    # here in the clear would publish exactly the names the guard exists to keep
+    # out of public trees. The forge lookup alone does not substitute for it: a
+    # private repository answers 404 to an unauthenticated token, which this
+    # guard deliberately reads as "cannot say" rather than "not private", so
+    # without the list a private name is unresolved rather than refused.
+    env:
+      GIT_GUARDS_REPO_VISIBILITY: public
+      GIT_GUARDS_PRIVATE_OWNERS: ${{ secrets.GIT_GUARDS_PRIVATE_OWNERS }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
+      # ── pre-commit (Python) ──────────────────────────────────────
+      - if: matrix.tool == 'pre-commit'
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --hook-stage manual
+
+      # ── prek (Rust) ─────────────────────────────────────────────
+      - if: matrix.tool == 'prek'
+        uses: j178/prek-action@v2
+        with:
+          extra-args: --all-files --hook-stage manual
+
+      # ── lefthook (Go) ───────────────────────────────────────────
+      - if: matrix.tool == 'lefthook'
+        uses: actions/setup-go@v7
+        with:
+          go-version: '>=1.26'
+
+      - if: matrix.tool == 'lefthook'
+        run: |
+          go install github.com/evilmartians/lefthook/v2@v2.1.9
+          go install github.com/rhysd/actionlint/cmd/actionlint@latest
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      - if: matrix.tool == 'lefthook'
+        run: lefthook run pre-commit --all-files

@@ -1,0 +1,8 @@
+# Which cmd-shims checks this repository runs, where a reviewer sees it.
+#
+# This repo is public and holds the rule that reads the running machine's
+# identity, so every example in its own docs is written from some maintainer's
+# workstation. no-os-identity calls back into this engine's --check-text mode:
+# the guard on the way out is the same rule as the guard on the tree.
+no-os-identity
+prevent-ai-author

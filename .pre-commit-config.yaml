@@ -1,0 +1,46 @@
+# Shared hook configuration — works with both pre-commit and prek.
+#
+# pre-commit:  pip install pre-commit && pre-commit install
+# prek:        cargo install prek && prek install
+#
+# Both tools read this file natively.  lefthook has its own lefthook.yml.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+
+  - repo: https://github.com/HackingGate/git-guards
+    rev: v1.0.0
+    hooks:
+      - id: prevent-ai-author
+      - id: prevent-unusual-unicode
+      - id: no-private-repo-names
+      - id: no-private-repo-names-staged
+      # The tree-wide mode, and this repository is one of the few places it can
+      # actually fire: the guard exits 0 unless the repository is PUBLIC, which
+      # makes it inert in a private tree and live in this one.
+      #
+      # The staged mode above judges what a commit ADDS, so it is blind by
+      # construction to a line that arrived under --no-verify, through a merge,
+      # or from a checkout where nobody ran an install. This mode is how such a
+      # line gets found rather than living here permanently. At a push it reads
+      # the pushed commits' messages and the blobs the range introduces as well,
+      # so a name that appeared and was deleted again before the tip is still
+      # caught.
+      - id: no-private-repo-names-in-files
+      - id: prevent-public-push
+      - id: no-local-merge
+      - id: no-merge-commit
+
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
