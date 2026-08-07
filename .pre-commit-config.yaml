@@ -40,6 +40,18 @@ repos:
       - id: no-local-merge
       - id: no-merge-commit
 
+  # The engine's own behaviour tests, run the way a consumer gets it. A rule
+  # that decides whether a commit may proceed is not proven by linting it.
+  - repo: local
+    hooks:
+      - id: engine-tests
+        name: engine behaviour tests
+        entry: python3 tests/test_check_policy.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit, manual]
+
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
     hooks:

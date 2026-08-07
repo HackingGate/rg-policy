@@ -589,6 +589,110 @@ def test_require_rule_fail(tmp_path: Path) -> None:
     assert "bad.sh" in result.stderr
 
 
+REQUIRE_BASELINE_POLICY = textwrap.dedent('''\
+    [[require_rule]]
+    id = "scripts-strict-mode"
+    message = "Shell scripts must set strict mode."
+    pattern = 'set -euo pipefail'
+    include = ["."]
+    glob = ["*.sh"]
+    baseline = "policy/strict-mode-baseline.txt"
+''')
+
+
+def test_require_rule_baseline_grandfathers_a_listed_file(tmp_path: Path) -> None:
+    """A must-find rule lands only when everything already complies.
+
+    Which is exactly when nobody needs it: a requirement is written down
+    *because* part of the tree does not meet it. Without a way in, the rule is
+    either never added or added by first exempting the whole directory.
+    """
+    repo = make_repo(
+        tmp_path,
+        REQUIRE_BASELINE_POLICY,
+        {
+            "old.sh": "#!/usr/bin/env bash\necho hi\n",
+            "policy/strict-mode-baseline.txt": "# debt\nold.sh\n",
+        },
+    )
+    result = run_engine(repo)
+    assert result.returncode == 0, result.stderr
+
+
+def test_require_rule_baseline_does_not_cover_an_unlisted_file(tmp_path: Path) -> None:
+    """The point of paths-not-counts: a listed path may stay bad, a new one may not."""
+    repo = make_repo(
+        tmp_path,
+        REQUIRE_BASELINE_POLICY,
+        {
+            "old.sh": "#!/usr/bin/env bash\necho hi\n",
+            "new.sh": "#!/usr/bin/env bash\necho hi\n",
+            "policy/strict-mode-baseline.txt": "old.sh\n",
+        },
+    )
+    result = run_engine(repo)
+    assert result.returncode == 1
+    assert "new.sh" in result.stderr
+    assert "old.sh: required pattern not found" not in result.stderr
+
+
+def test_require_rule_baseline_reports_a_paid_off_entry(tmp_path: Path) -> None:
+    """Stale detection is inverted here, and has to be.
+
+    For ``[[rule]]`` an entry goes stale when the path stops matching. For a
+    must-find rule the debt is paid when the path *starts* matching, and an
+    entry left behind then switches the requirement off for a file that had
+    already met it.
+    """
+    repo = make_repo(
+        tmp_path,
+        REQUIRE_BASELINE_POLICY,
+        {
+            "old.sh": "#!/usr/bin/env bash\nset -euo pipefail\necho hi\n",
+            "policy/strict-mode-baseline.txt": "old.sh\n",
+        },
+    )
+    result = run_engine(repo)
+    assert result.returncode == 1
+    assert "stale baseline" in result.stderr
+    assert "old.sh" in result.stderr
+
+
+def test_require_rule_baseline_reports_a_deleted_entry(tmp_path: Path) -> None:
+    """A path that is gone no longer describes the tree either."""
+    repo = make_repo(
+        tmp_path,
+        REQUIRE_BASELINE_POLICY,
+        {
+            "ok.sh": "#!/usr/bin/env bash\nset -euo pipefail\necho hi\n",
+            "policy/strict-mode-baseline.txt": "deleted.sh\n",
+        },
+    )
+    result = run_engine(repo)
+    assert result.returncode == 1
+    assert "stale baseline" in result.stderr
+    assert "deleted.sh" in result.stderr
+
+
+def test_require_rule_without_baseline_is_unchanged(tmp_path: Path) -> None:
+    """The key is optional; a rule that never had one behaves exactly as before."""
+    repo = make_repo(
+        tmp_path,
+        textwrap.dedent('''\
+            [[require_rule]]
+            id = "scripts-strict-mode"
+            message = "Shell scripts must set strict mode."
+            pattern = 'set -euo pipefail'
+            include = ["."]
+            glob = ["*.sh"]
+        '''),
+        {"bad.sh": "#!/usr/bin/env bash\necho hi\n"},
+    )
+    result = run_engine(repo)
+    assert result.returncode == 1
+    assert "stale baseline" not in result.stderr
+
+
 # --- extends / base merge --------------------------------------------------
 
 def test_extends_pulls_in_base_rule(tmp_path: Path) -> None:
